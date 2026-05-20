@@ -276,10 +276,10 @@
       </div>
 
       <audio ref="previewAudioRef" :src="audioPreviewUrl" preload="auto" class="d-none" @ended="stopPreviewSegment"
-        @timeupdate="onPreviewTimeUpdate"></audio>
+        @timeupdate="onPreviewTimeUpdate" @error="onPreviewError"></audio>
       <audio ref="fullAudioRef" :src="audioPreviewUrl" preload="metadata" class="d-none"
         @loadedmetadata="onFullTrackLoadedMetadata" @timeupdate="onFullTrackTimeUpdate"
-        @ended="onFullTrackEnded"></audio>
+        @ended="onFullTrackEnded" @error="onFullTrackError"></audio>
       </template>
     </form>
 
@@ -376,6 +376,7 @@ export default {
       stopPreviewSegment,
       onPreviewSeekInput,
       onPreviewTimeUpdate,
+      onPreviewError,
       onPreviewStartInput,
       onPreviewEndInput,
       toggleFullTrackPlay,
@@ -383,6 +384,7 @@ export default {
       onFullTrackTimeUpdate,
       onFullTrackSeekInput,
       onFullTrackEnded,
+      onFullTrackError,
       formatTime,
       formatPrice,
       onAudioChange,
@@ -428,6 +430,7 @@ export default {
       stopPreviewSegment,
       onPreviewSeekInput,
       onPreviewTimeUpdate,
+      onPreviewError,
       onPreviewStartInput,
       onPreviewEndInput,
       toggleFullTrackPlay,
@@ -435,6 +438,7 @@ export default {
       onFullTrackTimeUpdate,
       onFullTrackSeekInput,
       onFullTrackEnded,
+      onFullTrackError,
       formatTime,
       formatPrice,
       onAudioChange,

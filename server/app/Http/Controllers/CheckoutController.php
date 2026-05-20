@@ -6,9 +6,11 @@ use App\Models\Album;
 use App\Models\Track;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Throwable;
 
 class CheckoutController extends Controller
 {
@@ -92,10 +94,6 @@ class CheckoutController extends Controller
             }
         }
 
-        // Clear cart after simulated checkout
-        $cart->items()->delete();
-        $cart->delete();
-
         if (empty($downloadItems)) {
             return response()->json([
                 'message' => 'No downloadable items found',
@@ -109,19 +107,41 @@ class CheckoutController extends Controller
             'expires_at' => $expiresAt->toDateTimeString(),
         ];
 
-        Mail::send([
-            'html' => 'emails.purchase',
-            'text' => 'emails.purchase-plain',
-        ], $payload, function ($message) use ($user): void {
-            $message->to((string) $user->email)
-                ->subject('Doomshop letoltesi linkek');
-        });
+        $mailSent = true;
+        $mailError = null;
+
+        try {
+            Mail::send([
+                'html' => 'emails.purchase',
+                'text' => 'emails.purchase-plain',
+            ], $payload, function ($message) use ($user): void {
+                $message->to((string) $user->email)
+                    ->subject('Your Doomshop purchase is ready to download');
+            });
+        } catch (Throwable $e) {
+            $mailSent = false;
+            $mailError = $e->getMessage();
+            Log::error('Checkout email sending failed.', [
+                'user_id' => $user->id,
+                'cart_id' => $id,
+                'email' => (string) $user->email,
+                'exception' => $e,
+            ]);
+        }
+
+        // Clear cart after simulated checkout
+        $cart->items()->delete();
+        $cart->delete();
 
         return response()->json([
-            'message' => 'Checkout complete',
+            'message' => $mailSent
+                ? 'Checkout complete'
+                : 'Checkout complete, but email could not be sent',
             'data' => [
                 'download_items' => $downloadItems,
                 'expires_at' => $expiresAt->toDateTimeString(),
+                'mail_sent' => $mailSent,
+                'mail_error' => $mailError,
             ],
         ]);
     }

@@ -1,4 +1,5 @@
 ﻿import { defineStore } from "pinia";
+import { markRaw } from "vue";
 import service from "@/api/trackService";
 import genreService from "@/api/genreService";
 import artistService from "@/api/artistService";
@@ -115,8 +116,14 @@ export const useTracksViewStore = defineStore("tracksView", {
     },
   },
   actions: {
+    resolveDomRef(refOrElement) {
+      if (refOrElement && typeof refOrElement === "object" && "value" in refOrElement) {
+        return refOrElement.value || null;
+      }
+      return refOrElement || null;
+    },
     bindRefs(refs) {
-      this.refs = { ...this.refs, ...refs };
+      this.refs = markRaw({ ...this.refs, ...refs });
     },
     trackId(track) {
       return track?.track_id || track?.id || track?.trackId || track?.trackID;
@@ -190,7 +197,7 @@ export const useTracksViewStore = defineStore("tracksView", {
         media: "mediaSection",
       };
       const key = map[section];
-      const target = key ? this.refs?.[key]?.value : null;
+      const target = key ? this.resolveDomRef(this.refs?.[key]) : null;
       if (target && typeof target.scrollIntoView === "function") {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
@@ -223,37 +230,49 @@ export const useTracksViewStore = defineStore("tracksView", {
         clearTimeout(this.previewStopTimer);
         this.previewStopTimer = null;
       }
-      const audio = this.refs?.previewAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.previewAudioRef);
       if (audio && typeof audio.pause === "function") {
         audio.pause();
       }
       this.isPreviewPlaying = false;
     },
     stopFullTrack() {
-      const audio = this.refs?.fullAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.fullAudioRef);
       if (audio && typeof audio.pause === "function") {
         audio.pause();
       }
       this.isFullTrackPlaying = false;
     },
-    playPreviewSegment() {
+    async playPreviewSegment() {
       if (!this.audioPreviewUrl) return;
       const start = Number(this.form.preview_start_at || 0);
       const end = Number(this.form.preview_end_at || 0);
       if (end <= start) return;
-      const audio = this.refs?.previewAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.previewAudioRef);
       if (!audio) return;
 
       this.stopPreviewSegment();
-      audio.currentTime = start;
-      audio.play();
-      this.previewSeekTime = start;
-      this.isPreviewPlaying = true;
-      this.previewHint = `Playing ${start}s-${end}s`;
+      try {
+        if (!audio.src) {
+          this.previewHint = "Preview source is missing.";
+          return;
+        }
+        if (Number(audio.readyState || 0) === 0) {
+          audio.load();
+        }
+        audio.currentTime = start;
+        await audio.play();
+        this.previewSeekTime = start;
+        this.isPreviewPlaying = true;
+        this.previewHint = `Playing ${start}s-${end}s`;
 
-      this.previewStopTimer = setTimeout(() => {
-        this.stopPreviewSegment();
-      }, Math.max(0, (end - start) * 1000));
+        this.previewStopTimer = setTimeout(() => {
+          this.stopPreviewSegment();
+        }, Math.max(0, (end - start) * 1000));
+      } catch (_err) {
+        this.isPreviewPlaying = false;
+        this.previewHint = "Preview playback failed. Check browser sound/autoplay permission.";
+      }
     },
     regeneratePreviewSegment() {
       this.normalizePreviewWindow();
@@ -265,16 +284,20 @@ export const useTracksViewStore = defineStore("tracksView", {
       const max = Number(this.form.preview_end_at || 0);
       const clamped = Math.min(Math.max(next, min), max);
       this.previewSeekTime = clamped;
-      const audio = this.refs?.previewAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.previewAudioRef);
       if (audio) audio.currentTime = clamped;
     },
     onPreviewTimeUpdate() {
-      const audio = this.refs?.previewAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.previewAudioRef);
       if (!audio) return;
       this.previewSeekTime = Number(audio.currentTime || this.form.preview_start_at || 0);
       if (this.previewSeekTime >= Number(this.form.preview_end_at || 0)) {
         this.stopPreviewSegment();
       }
+    },
+    onPreviewError() {
+      this.isPreviewPlaying = false;
+      this.previewHint = "Preview audio could not be loaded.";
     },
     onPreviewStartInput() {
       this.normalizePreviewWindow();
@@ -289,17 +312,31 @@ export const useTracksViewStore = defineStore("tracksView", {
       if (!audio) return;
       this.fullTrackDuration = Number(audio.duration || 0);
     },
-    toggleFullTrackPlay() {
-      const audio = this.refs?.fullAudioRef?.value;
+    async toggleFullTrackPlay() {
+      const audio = this.resolveDomRef(this.refs?.fullAudioRef);
       if (!audio) return;
       if (this.isFullTrackPlaying) {
         audio.pause();
         this.isFullTrackPlaying = false;
+        this.previewHint = "";
         return;
       }
-      audio.currentTime = Number(this.fullTrackCurrentTime || 0);
-      audio.play();
-      this.isFullTrackPlaying = true;
+      try {
+        if (!audio.src) {
+          this.previewHint = "Full track source is missing.";
+          return;
+        }
+        if (Number(audio.readyState || 0) === 0) {
+          audio.load();
+        }
+        audio.currentTime = Number(this.fullTrackCurrentTime || 0);
+        await audio.play();
+        this.isFullTrackPlaying = true;
+        this.previewHint = "";
+      } catch (_err) {
+        this.isFullTrackPlaying = false;
+        this.previewHint = "Full track playback failed. Check browser sound/autoplay permission.";
+      }
     },
     onFullTrackTimeUpdate(event) {
       const audio = event?.target;
@@ -308,13 +345,17 @@ export const useTracksViewStore = defineStore("tracksView", {
     },
     onFullTrackSeekInput(event) {
       const next = Number(event?.target?.value || 0);
-      const audio = this.refs?.fullAudioRef?.value;
+      const audio = this.resolveDomRef(this.refs?.fullAudioRef);
       this.fullTrackCurrentTime = next;
       if (audio) audio.currentTime = next;
     },
     onFullTrackEnded() {
       this.isFullTrackPlaying = false;
       this.fullTrackCurrentTime = 0;
+    },
+    onFullTrackError() {
+      this.isFullTrackPlaying = false;
+      this.previewHint = "The uploaded audio file could not be decoded by the browser.";
     },
     formatTime(value) {
       const total = Math.max(0, Math.floor(Number(value) || 0));
@@ -341,7 +382,7 @@ export const useTracksViewStore = defineStore("tracksView", {
       this.handleAudioSelected(file);
     },
     syncAudioInputFile(file) {
-      const input = this.refs?.audioInputRef?.value;
+      const input = this.resolveDomRef(this.refs?.audioInputRef);
       if (!input || !file) return;
       try {
         const dt = new DataTransfer();
@@ -350,15 +391,37 @@ export const useTracksViewStore = defineStore("tracksView", {
       } catch (_err) {
       }
     },
+    releaseAudioPreviewUrl() {
+      const currentUrl = String(this.audioPreviewUrl || "");
+      if (!currentUrl) return;
+
+      const previewAudio = this.resolveDomRef(this.refs?.previewAudioRef);
+      const fullAudio = this.resolveDomRef(this.refs?.fullAudioRef);
+
+      [previewAudio, fullAudio].forEach((el) => {
+        if (!el) return;
+        try {
+          el.pause();
+          el.removeAttribute("src");
+          el.load();
+        } catch (_err) {
+        }
+      });
+
+      this.audioPreviewUrl = "";
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(currentUrl);
+        } catch (_err) {
+        }
+      }, 0);
+    },
     handleAudioSelected(file) {
       this.stopPreviewSegment();
       this.stopFullTrack();
       this.previewHint = "";
       this.audioFile = file;
-      if (this.audioPreviewUrl) {
-        URL.revokeObjectURL(this.audioPreviewUrl);
-        this.audioPreviewUrl = "";
-      }
+      this.releaseAudioPreviewUrl();
       if (!file) return;
       this.audioPreviewUrl = URL.createObjectURL(file);
       this.previewSeekTime = Number(this.form.preview_start_at || 0);
@@ -378,6 +441,9 @@ export const useTracksViewStore = defineStore("tracksView", {
           }
           this.normalizePreviewWindow();
         }
+        URL.revokeObjectURL(audio.src);
+      };
+      audio.onerror = () => {
         URL.revokeObjectURL(audio.src);
       };
 
@@ -549,10 +615,10 @@ export const useTracksViewStore = defineStore("tracksView", {
       }
     },
     openCoverPicker() {
-      this.refs?.coverInputRef?.value?.click?.();
+      this.resolveDomRef(this.refs?.coverInputRef)?.click?.();
     },
     syncCoverInputFile(file) {
-      const input = this.refs?.coverInputRef?.value;
+      const input = this.resolveDomRef(this.refs?.coverInputRef);
       if (!input || !file) return;
       try {
         const dt = new DataTransfer();
@@ -739,10 +805,7 @@ export const useTracksViewStore = defineStore("tracksView", {
         this.clearValidationErrors();
         this.audioFile = null;
         this.stopFullTrack();
-        if (this.audioPreviewUrl) {
-          URL.revokeObjectURL(this.audioPreviewUrl);
-          this.audioPreviewUrl = "";
-        }
+        this.releaseAudioPreviewUrl();
         this.previewHint = "";
         this.setCoverFile(null);
         await this.load();
@@ -756,9 +819,7 @@ export const useTracksViewStore = defineStore("tracksView", {
     cleanup() {
       this.stopPreviewSegment();
       this.stopFullTrack();
-      if (this.audioPreviewUrl) {
-        URL.revokeObjectURL(this.audioPreviewUrl);
-      }
+      this.releaseAudioPreviewUrl();
       if (this.coverPreviewUrl) {
         URL.revokeObjectURL(this.coverPreviewUrl);
       }

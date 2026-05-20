@@ -87,3 +87,4 @@ DOOMSHOP-music/
 ├── Dokumentáció.md
 └── Tesztek.md
 ```
+c # javitas

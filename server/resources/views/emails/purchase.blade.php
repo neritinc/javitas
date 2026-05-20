@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 
 <head>
@@ -117,6 +117,9 @@
             @endforeach
           </div>
         @endif
+      </div>
+      <div class="meta">
+        Links valid until: {{ $expires_at ?? '' }}
       </div>
       <div class="footer">
         If you did not request this email, you can safely ignore it.
